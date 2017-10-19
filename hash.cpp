@@ -19,12 +19,13 @@ void print_md5_sum(unsigned char* md) {
 }
 
 int MD5_file(string filename, unsigned char* hash) {
+
 	unsigned char buffer[FILE_BUFFER_SIZE];
 
 	FILE* file = fopen(filename.c_str(), "rb");
 
 	if (!file) {
-		cout << "Не удалось прочитать файл: " << filename << " Пропускается..." << endl;
+		cout << "Не удалось прочитать файл: " << filename << endl;
 		return -1;
 	}
 
@@ -45,7 +46,12 @@ int MD5_file(string filename, unsigned char* hash) {
 	return 0;
 }
 
-int write_MD5_dir(string dir_name, ofstream* results) {
+int write_MD5_dir(string dir_name, ofstream* results, set<string>* excludes) {
+
+	if (excludes->find(dir_name) != excludes->end()) {
+		cout << "Исключение: " << dir_name << endl;
+		return -2;
+	}
 
 	DIR* dir = opendir(dir_name.c_str());
 
@@ -63,11 +69,17 @@ int write_MD5_dir(string dir_name, ofstream* results) {
 			if (strcmp(d->d_name, ".") != 0 && strcmp(d->d_name, "..") != 0) {
 
 				file_fullname = dir_name + "/" + string(d->d_name);
+
+				if (excludes->find(file_fullname) != excludes->end()) {
+					cout << "Исключение: " << file_fullname << endl;
+					continue;
+				}
+
 				lstat(file_fullname.c_str(), &file_info);
 
 				if (S_ISDIR(file_info.st_mode)) {
 
-					write_MD5_dir(file_fullname, results);
+					write_MD5_dir(file_fullname, results, excludes);
 
 				} else {
 
@@ -103,15 +115,7 @@ int main(int argc, char const *argv[])
 	ofstream results("MD5.hash", ios::binary);
 
 	char dirname[PATH_MAX];
-	set<string> dirs_to_hash;
-
-	while (!directories_file.eof()) {
-		directories_file.getline(dirname, PATH_MAX);
-		
-		if (string(dirname) != "") {
-			dirs_to_hash.insert(string(dirname));
-		}
-	}
+	set<string> excluded_dirs;
 
 	if (argc > 2) {
 		const char* excludes_filename = argv[2];
@@ -119,16 +123,17 @@ int main(int argc, char const *argv[])
 
 		while (!excludes_file.eof()) {
 			excludes_file.getline(dirname, PATH_MAX);
-			auto search = dirs_to_hash.find(string(dirname));
-			if (search != dirs_to_hash.end()) {
-				dirs_to_hash.erase(string(dirname));
-			}
+			excluded_dirs.insert(string(dirname));
 		}
 	}
 
-	for (auto i = dirs_to_hash.begin(); i != dirs_to_hash.end(); ++i) {
-		if (write_MD5_dir(*i, &results) == 0) {
-			cout << *i << " ... OK" << endl;
+	while (!directories_file.eof()) {
+		directories_file.getline(dirname, PATH_MAX);
+		
+		if (string(dirname) != "") {
+			if (write_MD5_dir(string(dirname), &results, &excluded_dirs) == 0) {
+				cout << string(dirname) << " ... OK" << endl;
+			}
 		}
 	}
 
