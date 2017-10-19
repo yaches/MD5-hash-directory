@@ -4,6 +4,7 @@
 #include <dirent.h>
 #include <cstring>
 #include <sys/stat.h>
+#include <vector>
 #include <openssl/md5.h>
 
 using namespace std;
@@ -42,31 +43,40 @@ void MD5_file(string filename, unsigned char* hash) {
 	fclose(file);
 }
 
-void MD5_dir(string dir_name) {
+void write_MD5_dir(string dir_name, ofstream* results) {
 
 	DIR* dir = opendir(dir_name.c_str());
 	struct dirent* d;
 	struct stat file_info;
 
 	unsigned char hash[MD5_DIGEST_LENGTH];
-
-	if (!dir) {
-		exit(1);
-		cout << "dir err" << endl;
-	}
-
-	string file_relative_name;
+	string file_fullname;
+	int32_t file_fullname_len;
 
 	while ((d = readdir(dir)) != NULL) {
+
 		if (strcmp(d->d_name, ".") != 0 && strcmp(d->d_name, "..") != 0) {
-			file_relative_name = dir_name + "/" + string(d->d_name);
-			lstat(file_relative_name.c_str(), &file_info);
+
+			file_fullname = dir_name + "/" + string(d->d_name);
+			lstat(file_fullname.c_str(), &file_info);
+
 			if (S_ISDIR(file_info.st_mode)) {
-				MD5_dir(file_relative_name);
+
+				write_MD5_dir(file_fullname, results);
+
 			} else {
-				MD5_file(file_relative_name, hash);
-				cout << file_relative_name << ": ";
-				print_md5_sum(hash);
+
+				// cout << 1;
+
+				MD5_file(file_fullname, hash);
+				file_fullname_len = file_fullname.length() + 1;
+				results->write((char*) &file_fullname_len, sizeof(file_fullname_len));
+				results->write(file_fullname.c_str(), file_fullname_len);
+				results->write((const char*) hash, MD5_DIGEST_LENGTH);
+
+				// cout << file_fullname << ": ";
+				// print_md5_sum(hash);
+				// cout << 2;
 			}
 		}
 	}
@@ -76,15 +86,30 @@ void MD5_dir(string dir_name) {
 
 int main(int argc, char const *argv[])
 {
-	unsigned char result[MD5_DIGEST_LENGTH];
+	if (argc < 2) {
+		cout << "Usage: " << endl << "{file with directories} [file with exceptions]" << endl;
+		exit(1);
+	}
 
-	string dir_name;
-	cin >> dir_name;
+	const char* directories_filename = argv[1];
+	ifstream directories_file(directories_filename);
+	ofstream results("MD5.hash", ios::binary);
 
-	MD5_dir(dir_name);
+	char dirname[PATH_MAX];
 
-	// MD5_file(filename, result);
-	// print_md5_sum(result);
+	vector<string> dirs;
+
+	while (!directories_file.eof()) {
+		directories_file.getline(dirname, PATH_MAX);
+		dirs.push_back(string(dirname));
+		
+		if (string(dirname) != "") {
+			write_MD5_dir(string(dirname), &results);
+			cout << dirname << endl;
+		}
+	}
+
+	results.close();
 
 	return 0;
 }
