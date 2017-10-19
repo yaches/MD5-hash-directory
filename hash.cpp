@@ -4,7 +4,7 @@
 #include <dirent.h>
 #include <cstring>
 #include <sys/stat.h>
-#include <vector>
+#include <set>
 #include <openssl/md5.h>
 
 using namespace std;
@@ -18,14 +18,14 @@ void print_md5_sum(unsigned char* md) {
 	printf("\n");
 }
 
-void MD5_file(string filename, unsigned char* hash) {
+int MD5_file(string filename, unsigned char* hash) {
 	unsigned char buffer[FILE_BUFFER_SIZE];
 
 	FILE* file = fopen(filename.c_str(), "rb");
 
 	if (!file) {
-		cout << "file err: " << filename << endl;
-		return;
+		cout << "Не удалось прочитать файл: " << filename << " Пропускается..." << endl;
+		return -1;
 	}
 
 	MD5_CTX mdContext;
@@ -41,47 +41,54 @@ void MD5_file(string filename, unsigned char* hash) {
 	MD5_Final (hash, &mdContext);
 
 	fclose(file);
+
+	return 0;
 }
 
-void write_MD5_dir(string dir_name, ofstream* results) {
+int write_MD5_dir(string dir_name, ofstream* results) {
 
 	DIR* dir = opendir(dir_name.c_str());
-	struct dirent* d;
-	struct stat file_info;
 
-	unsigned char hash[MD5_DIGEST_LENGTH];
-	string file_fullname;
-	int32_t file_fullname_len;
+	if (dir) {
 
-	while ((d = readdir(dir)) != NULL) {
+		struct dirent* d;
+		struct stat file_info;
 
-		if (strcmp(d->d_name, ".") != 0 && strcmp(d->d_name, "..") != 0) {
+		unsigned char hash[MD5_DIGEST_LENGTH];
+		string file_fullname;
+		int32_t file_fullname_len;
 
-			file_fullname = dir_name + "/" + string(d->d_name);
-			lstat(file_fullname.c_str(), &file_info);
+		while ((d = readdir(dir)) != NULL) {
 
-			if (S_ISDIR(file_info.st_mode)) {
+			if (strcmp(d->d_name, ".") != 0 && strcmp(d->d_name, "..") != 0) {
 
-				write_MD5_dir(file_fullname, results);
+				file_fullname = dir_name + "/" + string(d->d_name);
+				lstat(file_fullname.c_str(), &file_info);
 
-			} else {
+				if (S_ISDIR(file_info.st_mode)) {
 
-				// cout << 1;
+					write_MD5_dir(file_fullname, results);
 
-				MD5_file(file_fullname, hash);
-				file_fullname_len = file_fullname.length() + 1;
-				results->write((char*) &file_fullname_len, sizeof(file_fullname_len));
-				results->write(file_fullname.c_str(), file_fullname_len);
-				results->write((const char*) hash, MD5_DIGEST_LENGTH);
+				} else {
 
-				// cout << file_fullname << ": ";
-				// print_md5_sum(hash);
-				// cout << 2;
+					if (MD5_file(file_fullname, hash) == 0) {
+						file_fullname_len = file_fullname.length() + 1;
+						results->write((char*) &file_fullname_len, sizeof(file_fullname_len));
+						results->write(file_fullname.c_str(), file_fullname_len);
+						results->write((char*) hash, MD5_DIGEST_LENGTH);
+					}
+				}
 			}
 		}
+
+		closedir(dir);
+	} else {
+
+		cout << "Не удалось прочитать папку: " << dir_name << " Пропускается..." << endl;
+		return -1;
 	}
 
-	closedir(dir);
+	return 0;
 }
 
 int main(int argc, char const *argv[])
@@ -96,16 +103,32 @@ int main(int argc, char const *argv[])
 	ofstream results("MD5.hash", ios::binary);
 
 	char dirname[PATH_MAX];
-
-	vector<string> dirs;
+	set<string> dirs_to_hash;
 
 	while (!directories_file.eof()) {
 		directories_file.getline(dirname, PATH_MAX);
-		dirs.push_back(string(dirname));
 		
 		if (string(dirname) != "") {
-			write_MD5_dir(string(dirname), &results);
-			cout << dirname << endl;
+			dirs_to_hash.insert(string(dirname));
+		}
+	}
+
+	if (argc > 2) {
+		const char* excludes_filename = argv[2];
+		ifstream excludes_file(excludes_filename);
+
+		while (!excludes_file.eof()) {
+			excludes_file.getline(dirname, PATH_MAX);
+			auto search = dirs_to_hash.find(string(dirname));
+			if (search != dirs_to_hash.end()) {
+				dirs_to_hash.erase(string(dirname));
+			}
+		}
+	}
+
+	for (auto i = dirs_to_hash.begin(); i != dirs_to_hash.end(); ++i) {
+		if (write_MD5_dir(*i, &results) == 0) {
+			cout << *i << " ... OK" << endl;
 		}
 	}
 
